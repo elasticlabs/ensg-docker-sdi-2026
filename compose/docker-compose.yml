@@ -1,1 +1,158 @@
+name: exposome-routing
+
+services:
+  postgis:
+    image: postgis/postgis:16-3.4
+    profiles: ["core"]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGIS_PORT:-5432}:5432"
+    volumes:
+      - postgis_data:/var/lib/postgresql/data
+      - ../db/init:/docker-entrypoint-initdb.d:ro
+      - ../data:/data:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [backend]
+
+  pgadmin:
+    image: dpage/pgadmin4:8
+    profiles: ["core"]
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    depends_on:
+      postgis:
+        condition: service_healthy
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks: [backend]
+
+  geoserver:
+    image: kartoza/geoserver:2.24.4
+    profiles: ["core"]
+    environment:
+      - GEOSERVER_ADMIN_USER=${GEOSERVER_ADMIN_USER}
+      - GEOSERVER_ADMIN_PASSWORD=${GEOSERVER_ADMIN_PASSWORD}
+      - GEOSERVER_DATA_DIR=/opt/geoserver/data_dir
+      - JAVA_OPTS=-Xms512m -Xmx${GEOSERVER_MAX_MEM:-2g}
+    ports:
+      - "${GEOSERVER_PORT:-8082}:8080"
+    volumes:
+      - ../geoserver/data_dir:/opt/geoserver/data_dir
+      - ../data:/data:ro
+    depends_on:
+      postgis:
+        condition: service_healthy
+    networks: [backend]
+
+  jupyter:
+    image: jupyter/datascience-notebook:python-3.11
+    profiles: ["core"]
+    environment:
+      JUPYTER_TOKEN: ${JUPYTER_TOKEN}
+    ports:
+      - "${JUPYTER_PORT:-8888}:8888"
+    volumes:
+      - ../notebooks:/home/jovyan/work
+      - ../data:/home/jovyan/data:ro
+    command: >
+      bash -lc "start-notebook.py --NotebookApp.token='${JUPYTER_TOKEN}' --NotebookApp.allow_origin='*'"
+    depends_on:
+      postgis:
+        condition: service_healthy
+    networks: [backend]
+
+  nginx:
+    image: nginx:1.27
+    profiles: ["core"]
+    ports:
+      - "${NGINX_PORT:-80}:80"
+    volumes:
+      - ../nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - geoserver
+      - jupyter
+    networks:
+      - backend
+      - frontend
+
+  # --- Catalogage (option) ---
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.23
+    profiles: ["catalog"]
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx${ES_MAX_MEM:-1g}
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    networks: [backend]
+
+  geonetwork:
+    image: geonetwork:4.4.4
+    profiles: ["catalog"]
+    environment:
+      - JAVA_OPTS=-Xms512m -Xmx${GEONETWORK_MAX_MEM:-1g}
+      - ES_HOST=elasticsearch
+      - ES_PORT=9200
+    ports:
+      - "${GEONETWORK_PORT:-8080}:8080"
+    depends_on:
+      elasticsearch:
+        condition: service_started
+    networks: [backend]
+
+  # --- Extras (option) ---
+  minio:
+    image: minio/minio:RELEASE.2024-06-13T22-53-53Z
+    profiles: ["extras"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    networks: [backend]
+
+  portainer:
+    image: portainer/portainer-ce:2.21.5
+    profiles: ["extras"]
+    ports:
+      - "${PORTAINER_PORT:-9002}:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    networks: [backend]
+
+  dozzle:
+    image: amir20/dozzle:v7.0.7
+    profiles: ["extras"]
+    ports:
+      - "${DOZZLE_PORT:-9999}:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [backend]
+
+networks:
+  backend:
+  frontend:
+
+volumes:
+  postgis_data:
+  pgadmin_data:
+  es_data:
+  minio_data:
+  portainer_data:
 
