@@ -1,158 +1,167 @@
-name: exposome-routing
-
-services:
-  postgis:
-    image: postgis/postgis:16-3.4
-    profiles: ["core"]
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    ports:
-      - "${POSTGIS_PORT:-5432}:5432"
-    volumes:
-      - postgis_data:/var/lib/postgresql/data
-      - ../db/init:/docker-entrypoint-initdb.d:ro
-      - ../data:/data:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-    networks: [backend]
-
-  pgadmin:
-    image: dpage/pgadmin4:8
-    profiles: ["core"]
-    environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
-    ports:
-      - "${PGADMIN_PORT:-5050}:80"
-    depends_on:
-      postgis:
-        condition: service_healthy
-    volumes:
-      - pgadmin_data:/var/lib/pgadmin
-    networks: [backend]
-
-  geoserver:
-    image: kartoza/geoserver:2.24.4
-    profiles: ["core"]
-    environment:
-      - GEOSERVER_ADMIN_USER=${GEOSERVER_ADMIN_USER}
-      - GEOSERVER_ADMIN_PASSWORD=${GEOSERVER_ADMIN_PASSWORD}
-      - GEOSERVER_DATA_DIR=/opt/geoserver/data_dir
-      - JAVA_OPTS=-Xms512m -Xmx${GEOSERVER_MAX_MEM:-2g}
-    ports:
-      - "${GEOSERVER_PORT:-8082}:8080"
-    volumes:
-      - ../geoserver/data_dir:/opt/geoserver/data_dir
-      - ../data:/data:ro
-    depends_on:
-      postgis:
-        condition: service_healthy
-    networks: [backend]
-
-  jupyter:
-    image: jupyter/datascience-notebook:python-3.11
-    profiles: ["core"]
-    environment:
-      JUPYTER_TOKEN: ${JUPYTER_TOKEN}
-    ports:
-      - "${JUPYTER_PORT:-8888}:8888"
-    volumes:
-      - ../notebooks:/home/jovyan/work
-      - ../data:/home/jovyan/data:ro
-    command: >
-      bash -lc "start-notebook.py --NotebookApp.token='${JUPYTER_TOKEN}' --NotebookApp.allow_origin='*'"
-    depends_on:
-      postgis:
-        condition: service_healthy
-    networks: [backend]
-
-  nginx:
-    image: nginx:1.27
-    profiles: ["core"]
-    ports:
-      - "${NGINX_PORT:-80}:80"
-    volumes:
-      - ../nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      - geoserver
-      - jupyter
-    networks:
-      - backend
-      - frontend
-
-  # --- Catalogage (option) ---
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.23
-    profiles: ["catalog"]
-    environment:
-      - discovery.type=single-node
-      - xpack.security.enabled=false
-      - ES_JAVA_OPTS=-Xms512m -Xmx${ES_MAX_MEM:-1g}
-    volumes:
-      - es_data:/usr/share/elasticsearch/data
-    networks: [backend]
-
-  geonetwork:
-    image: geonetwork:4.4.4
-    profiles: ["catalog"]
-    environment:
-      - JAVA_OPTS=-Xms512m -Xmx${GEONETWORK_MAX_MEM:-1g}
-      - ES_HOST=elasticsearch
-      - ES_PORT=9200
-    ports:
-      - "${GEONETWORK_PORT:-8080}:8080"
-    depends_on:
-      elasticsearch:
-        condition: service_started
-    networks: [backend]
-
-  # --- Extras (option) ---
-  minio:
-    image: minio/minio:RELEASE.2024-06-13T22-53-53Z
-    profiles: ["extras"]
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-    command: server /data --console-address ":9001"
-    ports:
-      - "${MINIO_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
-    volumes:
-      - minio_data:/data
-    networks: [backend]
-
+services:  
   portainer:
-    image: portainer/portainer-ce:2.21.5
-    profiles: ["extras"]
-    ports:
-      - "${PORTAINER_PORT:-9002}:9000"
+    image: portainer/portainer-ce
+    container_name: ${COMPOSE_PROJECT_NAME}_portainer
+    restart: always
+    expose:
+      - "9000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - portainer_data:/data
-    networks: [backend]
+    networks:
+      ensg_sdi:
+        ipv4_address: 172.24.0.22
 
   dozzle:
-    image: amir20/dozzle:v7.0.7
-    profiles: ["extras"]
-    ports:
-      - "${DOZZLE_PORT:-9999}:8080"
+    image: amir20/dozzle:latest
+    container_name: ${COMPOSE_PROJECT_NAME}_dozzle
+    restart: unless-stopped
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    networks: [backend]
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - DOZZLE_LEVEL=info
+    networks:
+      ensg_sdi:
+        ipv4_address: 172.24.0.30
 
-networks:
-  backend:
-  frontend:
+  filebrowser:
+    image: filebrowser/filebrowser
+    container_name: ${COMPOSE_PROJECT_NAME}_filebrowser
+    restart: unless-stopped
+    environment:
+      - PUID=$(id -u)
+      - PGID=$(id -g)
+      # - FB_BASE_URL=/data
+      # The list of avalable options can be found here : https://filebrowser.org/cli/filebrowser#options.
+    expose:
+      - "8080" 
+    volumes:
+      - filebrowser_data:/srv
+      - filebrowser_database:/database
+      - filebrowser_config:/config
+      - geoserver-data:/srv/geoserver-data
+      - geoserver-injected-data:/srv/geoserver-injected
+      - geoserver-settings:/srv/geoserver-settings
+    networks:
+      ensg_sdi:
+        ipv4_address: 172.24.0.40  
+
+  postgis:
+    image: postgis/postgis:16-3.4
+    container_name: ${COMPOSE_PROJECT_NAME}_postgis
+    restart: always
+    expose:
+      - "5432"
+    environment:
+      POSTGRES_DB: ensgdb
+      POSTGRES_USER: ensgadmin
+      POSTGRES_PASSWORD: ensgpassword
+      ALLOW_IP_RANGE: 0.0.0.0/0
+      FORCE_SSL: FALSE
+    volumes:
+      - postgis_data:/var/lib/postgresql/data
+    healthcheck:
+      test: "PGPASSWORD=${POSTGRES_PASS} pg_isready -h 127.0.0.1 -U ${POSTGRES_USER} -d ${POSTGRES_DB}"
+    networks:
+      ensg_sdi:
+        ipv4_address: 172.24.0.10
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: ensg-pgadmin
+    restart: unless-stopped
+    environment:
+      # Identifiants de démo (à changer en vrai)
+      - PGADMIN_DEFAULT_EMAIL=admin@ensg.eu
+      - PGADMIN_DEFAULT_PASSWORD=ensgadminadmin
+      # Hosting sous sous-répertoire (/pgadmin)
+      - SCRIPT_NAME=/pgadmin
+    networks:
+      ensg_sdi:
+        ipv4_address: 172.24.0.50
+
+  # -> Geo server
+  geoserver:
+    container_name: ${COMPOSE_PROJECT_NAME}_geoserver
+    image: kartoza/geoserver:${GS_VERSION}
+    expose:
+      - "8080"
+    depends_on:
+      postgis:
+        condition: service_healthy
+    environment:
+      - GEOSERVER_ADMIN_PASSWORD=${GEOSERVER_ADMIN_PASSWORD}
+      - GEOSERVER_ADMIN_USER=${GEOSERVER_ADMIN_USER}
+      - INITIAL_MEMORY=${INITIAL_MEMORY}
+      - MAXIMUM_MEMORY=${MAXIMUM_MEMORY}
+      - GEOSERVER_DATA_DIR=${GEOSERVER_DATA_DIR}
+      - GEOWEBCACHE_CACHE_DIR=${GEOWEBCACHE_CACHE_DIR}
+      - ROOT_WEBAPP_REDIRECT=${ROOT_WEBAPP_REDIRECT}
+      - TOMCAT_EXTRAS=${TOMCAT_EXTRAS}
+      - SAMPLE_DATA=${SAMPLE_DATA}
+      # Extensions set to be installed
+      - STABLE_EXTENSIONS=${STABLE_EXTENSIONS}
+      - COMMUNITY_EXTENSIONS=${COMMUNITY_EXTENSIONS}
+    volumes:
+      - geoserver-data:/opt/geoserver/data_dir
+      - geoserver-injected-data:/opt/geoserver/data_dir/injected
+      - geoserver-settings:/settings
+    healthcheck:
+      test: "curl --fail --silent --write-out 'HTTP CODE : %{http_code}\n' --output /dev/null -u ${GEOSERVER_ADMIN_USER}:'${GEOSERVER_ADMIN_PASSWORD}' http://localhost:8080/geoserver/rest/about/version.xml"
+      interval: 1m30s
+      timeout: 10s
+      retries: 3
+    networks:
+      ensg_sdi:
+        ipv4_address: 172.24.10.3
+
+  #
+  # Project reverse proxy
+  nginx-proxy:
+    image: ${COMPOSE_PROJECT_NAME}_proxy:latest
+    container_name: ${COMPOSE_PROJECT_NAME}_proxy
+    restart: unless-stopped
+    expose:
+      - "80"
+    depends_on:
+      - pgadmin
+      - portainer
+      - filebrowser
+    build:
+      context: ./config/nginx-proxy
+    environment:
+      - DHPARAM_GENERATION=false
+      - VIRTUAL_PORT=80
+      - VIRTUAL_HOST=hub.ensg-sdi.docker
+    volumes:
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+    profiles:
+      - proxyfied
+    networks:
+      ensg_sdi:
+        ipv4_address: 172.24.0.2
+
+  #  -> MapStore2
+  mapstore2:
+    image: geosolutionsit/mapstore2:latest
+    container_name: ${COMPOSE_PROJECT_NAME}_mapstore2
+    restart: unless-stopped
+    expose: 
+      - "8080"
+    networks:
+      ensg_sdi:
+        ipv4_address: 172.24.10.5
 
 volumes:
-  postgis_data:
-  pgadmin_data:
-  es_data:
-  minio_data:
+  geoserver-data:
+  geoserver-injected-data:
+  geoserver-settings:
   portainer_data:
+  postgis_data:
+  filebrowser_data:
+  filebrowser_database:
+  filebrowser_config:
 
+networks:
+  ensg_sdi:
+    external: true
