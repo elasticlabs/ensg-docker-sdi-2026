@@ -20,6 +20,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - DOZZLE_LEVEL=info
+      - DOZZLE_BASE=/logs
     networks:
       ensg_sdi:
         ipv4_address: 172.24.0.30
@@ -31,7 +32,7 @@ services:
     environment:
       - PUID=$(id -u)
       - PGID=$(id -g)
-      # - FB_BASE_URL=/data
+      - FB_BASE_URL=/data
       # The list of avalable options can be found here : https://filebrowser.org/cli/filebrowser#options.
     expose:
       - "8080" 
@@ -68,7 +69,7 @@ services:
 
   pgadmin:
     image: dpage/pgadmin4:latest
-    container_name: ensg-pgadmin
+    container_name: ${COMPOSE_PROJECT_NAME}_pgadmin
     restart: unless-stopped
     environment:
       # Identifiants de démo (à changer en vrai)
@@ -102,6 +103,7 @@ services:
       # Extensions set to be installed
       - STABLE_EXTENSIONS=${STABLE_EXTENSIONS}
       - COMMUNITY_EXTENSIONS=${COMMUNITY_EXTENSIONS}
+      - PROXY_BASE_URL=/geoserver
     volumes:
       - geoserver-data:/opt/geoserver/data_dir
       - geoserver-injected-data:/opt/geoserver/data_dir/injected
@@ -124,15 +126,16 @@ services:
     expose:
       - "80"
     depends_on:
+      - postgis
       - pgadmin
-      - portainer
       - filebrowser
+      - geoserver
     build:
       context: ./config/nginx-proxy
     environment:
       - DHPARAM_GENERATION=false
       - VIRTUAL_PORT=80
-      - VIRTUAL_HOST=hub.ensg-sdi.docker
+      - VIRTUAL_HOST=ensg-sdi.docker
     volumes:
       - /var/run/docker.sock:/tmp/docker.sock:ro
     profiles:
@@ -151,6 +154,24 @@ services:
     networks:
       ensg_sdi:
         ipv4_address: 172.24.10.5
+
+  # -> Homepage
+  homepage:
+    image: gethomepage/homepage:latest
+    container_name: ${COMPOSE_PROJECT_NAME}_homepage
+    restart: unless-stopped
+    expose:
+      - "3000"
+    volumes:
+      - ./config/homepage:/app/config
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - HOMEPAGE_ALLOWED_HOSTS=ensg-sdi.docker
+      - PUID=1000
+      - PGID=1000
+    networks:
+      ensg_sdi:
+        ipv4_address: 172.24.10.6
 
 volumes:
   geoserver-data:

@@ -1,0 +1,16 @@
+title: ENSG SDI – GeoStack
+theme: dark
+color: slate
+
+background:
+  image: /icons/bg.jpg   # optionnel
+  blur: sm
+  saturate: 120
+
+layout:
+  Infrastructure:
+    style: row
+    columns: 3
+
+headerStyle: boxed
+hideErrors: true

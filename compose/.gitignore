@@ -1,0 +1,19 @@
+# Ignore tout par défaut dans homepage
+homepage/**
+
+# Autorise uniquement les dossiers utiles
+!homepage/config/
+!homepage/icons/
+
+# Autorise uniquement les fichiers YAML initiés
+!homepage/config/settings.yaml
+!homepage/config/services.yaml
+!homepage/config/widgets.yaml
+
+# Autorise les icônes ajoutées explicitement
+!homepage/icons/**
+
+# Sécurité
+#.env
+*.log
+.DS_Store

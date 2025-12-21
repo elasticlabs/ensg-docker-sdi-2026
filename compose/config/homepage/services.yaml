@@ -1,0 +1,36 @@
+- Infrastructure:
+    - GeoServer:
+        icon: geoserver
+        href: http://ensg-sdi.docker/geoserver
+        description: Services OGC (WMS/WFS/WCS)
+
+    - MapStore:
+        icon: mapstore
+        href: http://ensg-sdi.docker/mapstore
+        description: Applications cartographiques
+
+    - GeoNetwork:
+        icon: geonetwork
+        href: http://ensg-sdi.docker/geonetwork
+        description: Catalogue de métadonnées
+
+- Administration:
+    - pgAdmin:
+        icon: postgres
+        href: http://ensg-sdi.docker/pgadmin
+        description: Administration PostgreSQL
+
+    - Portainer:
+        icon: docker
+        href: http://ensg-sdi.docker/portainer
+        description: Containers & stacks
+
+    - Dozzle:
+        icon: logs
+        href: http://ensg-sdi.docker/logs
+        description: Logs temps réel
+
+    - Filebrowser:
+        icon: folder
+        href: http://ensg-sdi.docker/data
+        description: Données & produits
